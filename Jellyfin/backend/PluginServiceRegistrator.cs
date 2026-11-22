@@ -36,6 +36,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<MoonfinThemeValidator>();
         serviceCollection.AddSingleton<MoonfinThemeStore>();
         serviceCollection.AddSingleton<SeerrSessionService>();
+        serviceCollection.AddSingleton<SeerrAutoConnect>();
         serviceCollection.AddSingleton<NotificationStore>();
         serviceCollection.AddSingleton<FcmSender>();
         serviceCollection.AddSingleton<RelaySender>();

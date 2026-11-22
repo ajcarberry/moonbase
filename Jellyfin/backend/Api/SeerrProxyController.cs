@@ -35,6 +35,7 @@ public class SeerrProxyController : ControllerBase
     private readonly TmdbRatingService _ratings;
     private readonly MoonfinSettingsService _settings;
     private readonly ILibraryManager _libraryManager;
+    private readonly SeerrAutoConnect _autoConnect;
 
     public SeerrProxyController(
         SeerrSessionService sessionService,
@@ -42,7 +43,8 @@ public class SeerrProxyController : ControllerBase
         ServerRatingLimitService ratingLimits,
         TmdbRatingService ratings,
         MoonfinSettingsService settings,
-        ILibraryManager libraryManager)
+        ILibraryManager libraryManager,
+        SeerrAutoConnect autoConnect)
     {
         _sessionService = sessionService;
         _provisioning = provisioning;
@@ -50,6 +52,7 @@ public class SeerrProxyController : ControllerBase
         _ratings = ratings;
         _settings = settings;
         _libraryManager = libraryManager;
+        _autoConnect = autoConnect;
     }
 
     /// <summary>
@@ -228,6 +231,15 @@ public class SeerrProxyController : ControllerBase
         var session = await _sessionService.GetSessionAsync(
             userId.Value, validate: true, maxAge: SessionFreshness);
 
+        if (session == null && await _autoConnect.TryConnectAsync(
+                config.AutoConnectSeerrViaQuickConnect,
+                userId,
+                this.IsAdminFromClaims() || this.GetIsApiKeyFromClaims(),
+                AutoConnectViaQuickConnect))
+        {
+            session = await _sessionService.GetSessionAsync(userId.Value);
+        }
+
         return Ok(new
         {
             enabled = true,
@@ -240,6 +252,33 @@ public class SeerrProxyController : ControllerBase
             sessionCreated = session?.CreatedAt,
             lastValidated = session?.LastValidated
         });
+    }
+
+    // The Quick Connect sign in LoginWithQuickConnect runs, for the caller only, with the
+    // username SeerrAutoConnect read from the caller's server account. Kept apart from that
+    // method so the login path stays as upstream ships it.
+    private async Task<SeerrAuthResult?> AutoConnectViaQuickConnect(Guid userId, string username)
+    {
+        var quickConnect = HttpContext.RequestServices.GetService(typeof(IQuickConnect)) as IQuickConnect;
+        if (quickConnect == null || !quickConnect.IsEnabled)
+        {
+            return null;
+        }
+
+        return await _sessionService.AuthenticateViaQuickConnectAsync(
+            userId,
+            username,
+            async code =>
+            {
+                try
+                {
+                    return await quickConnect.AuthorizeRequest(userId, code);
+                }
+                catch
+                {
+                    return false;
+                }
+            });
     }
 
     /// <summary>

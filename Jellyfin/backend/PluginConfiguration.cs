@@ -29,6 +29,13 @@ public class PluginConfiguration : BasePluginConfiguration, IGamesConfig
     public bool SeerrEnabled { get; set; } = false;
 
     /// <summary>
+    /// Connect a signed-in, non-admin user to Seerr through Quick Connect when the Seerr status
+    /// check finds no session for them, so no client has to prompt. Admins are never connected
+    /// this way. Needs Quick Connect enabled on the server.
+    /// </summary>
+    public bool AutoConnectSeerrViaQuickConnect { get; set; } = false;
+
+    /// <summary>
     /// Seerr server URL for server-to-server communication from Jellyfin.
     /// Example: http://seerr:5055 or http://192.168.50.20:5055
     /// </summary>
