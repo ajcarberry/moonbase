@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Moonfin.Server.Services;
 
 /// <summary>
@@ -85,5 +87,60 @@ public class SeerrAutoConnect
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Sends a proxied Seerr request through <paramref name="send"/>. When it comes back with no
+    /// session (never sent to Seerr) or an expired one (Seerr no longer knew it, and the session
+    /// service already cleared it), connects the caller under the same policy as the Status call
+    /// and sends it again, once. An expired GET or DELETE is retried. An expired POST or PUT is
+    /// not: Seerr refused it on authentication, but sending a write twice is not worth the risk,
+    /// so it reconnects and returns the refusal for the client to try again.
+    /// </summary>
+    public async Task<SeerrProxyResponse> ProxyAsync(
+        bool enabled,
+        Guid? callerId,
+        bool callerIsElevated,
+        HttpMethod method,
+        Func<Task<SeerrProxyResponse>> send,
+        Func<Guid, string, Task<SeerrAuthResult?>> connect)
+    {
+        var first = await send().ConfigureAwait(false);
+        var code = LostSessionCode(first);
+        if (code == null || !await TryConnectAsync(enabled, callerId, callerIsElevated, connect).ConfigureAwait(false))
+        {
+            return first;
+        }
+
+        var safeToSendAgain = code == NoSession || method == HttpMethod.Get || method == HttpMethod.Delete;
+        return safeToSendAgain ? await send().ConfigureAwait(false) : first;
+    }
+
+    private const string NoSession = "NO_SESSION";
+    private const string SessionExpired = "SESSION_EXPIRED";
+
+    // The 401 answers SeerrSessionService.ProxyRequestAsync gives for a missing session and for
+    // one Seerr confirmed dead. Every other refusal is Seerr's own and passes through.
+    private static string? LostSessionCode(SeerrProxyResponse response)
+    {
+        if (response.StatusCode != 401 || response.Body == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(response.Body);
+            var code = doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("code", out var prop)
+                && prop.ValueKind == JsonValueKind.String
+                    ? prop.GetString()
+                    : null;
+            return code is NoSession or SessionExpired ? code : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 }

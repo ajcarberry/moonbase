@@ -255,8 +255,8 @@ public class SeerrProxyController : ControllerBase
     }
 
     // The Quick Connect sign in LoginWithQuickConnect runs, for the caller only, with the
-    // username SeerrAutoConnect read from the caller's server account. Kept apart from that
-    // method so the login path stays as upstream ships it.
+    // username SeerrAutoConnect read from the caller's server account. Used by the Status call
+    // and the Api proxy. Kept apart from that method so the login path stays as upstream ships it.
     private async Task<SeerrAuthResult?> AutoConnectViaQuickConnect(Guid userId, string username)
     {
         var quickConnect = HttpContext.RequestServices.GetService(typeof(IQuickConnect)) as IQuickConnect;
@@ -564,13 +564,19 @@ public class SeerrProxyController : ControllerBase
             }
         }
 
-        var result = await _sessionService.ProxyRequestAsync(
-            userId.Value,
+        var result = await _autoConnect.ProxyAsync(
+            config.AutoConnectSeerrViaQuickConnect,
+            userId,
+            this.IsAdminFromClaims() || this.GetIsApiKeyFromClaims(),
             method,
-            path,
-            Request.QueryString.Value,
-            body,
-            contentType);
+            () => _sessionService.ProxyRequestAsync(
+                userId.Value,
+                method,
+                path,
+                Request.QueryString.Value,
+                body,
+                contentType),
+            AutoConnectViaQuickConnect);
 
         if (result.Body == null)
         {
